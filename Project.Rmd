@@ -1,0 +1,432 @@
+---
+title: 'Predicting Internet Addiction in Children: A Comparative Analysis of Machine
+  Learning Models'
+author: "Ayodele Adeniyi"
+date: ''
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+editor_options:
+  markdown:
+    wrap: 72
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+
+\newpage \tableofcontents
+
+```{=tex}
+\listoffigures
+\listoftables
+\newpage
+```
+# Abstact
+
+The interest is in estimating how much a child spends on the Internet, and further, whether the child is addicted to the Internet. While Internet addiction itself is not a psychiatric disorder, parents need to know when their children have characteristics and behaviors associated with compulsive use of the Internet. The dataset to be used in exploring this relationship was collected by the Healthy Brain Network (HBN) from a clinical sample of about five thousand 5- to 22-year-olds who have undergone both clinical and research screenings. This report details the steps in estimating the total scores of the Parent-Child Internet Addiction Test, which assesses the likelihood of Internet addiction. We will begin by performing data cleaning and imputation for missing values, and  Subsequently, we compare two methods of estimating the PCIAT scores—Elastic Net and Random Forest—and determine the method that has the least error. Our analysis revealed that Random Forest produced the lower Root Mean Squared Error (RMSE) value. The report further states the findings and recommendation of the study based on the analysis.
+
+# Section 1: Introduction
+
+Internet addiction comes in various forms: net compulsions, cyber relationships, gaming, information seeking, and many more. Naturally, this is a concern, especially since according to Internet Live Stats (2016), 88.5% of the U.S. population used the internet, amounting to 286,942,362 users out of a total population of 324,118,787. The effects of this overuse are mainly felt by close relatives or colleagues of the user, as the addiction often puts a strain on their ability to fulfill both personal and professional obligations. University College London researchers reviewed several articles about adolescents diagnosed with Internet addiction, and the findings revealed that there were significant changes in brain networks of these adolescents. They observed both increased and decreased activity in the default mode network, which is usually active when the brain is at rest. Furthermore, they noticed a decline in the connectivity of the executive control network, which is responsible for thinking and decision-making. Given the importance of this subject, it has become essential to proactively study and inquire about the Internet use of adolescents and even adults to estimate when this Internet addiction may have developed for easier remedy.
+
+The objective of the study is to compare two methods for predicting PCIAT scores, specifically we will be considering Elastic Net and Random Forest. We will use Elastic Net to predict the PCIAT score for internet
+users, we will also use Random Forest to perform the same task. We will then compare the performance of the two models based on the RMSE and recommend the better method based on the features. To achieve the goal
+of predicting PCIAT scores, the HBN dataset will be used. The original data set is sourced from Kaggle, and it contains 82 features and 3,960 observations. This includes: Age in years, Sex (gender of the
+participant), Weight in pounds, Sleep Disturbance Score, Hours of Using Computer/Internet in hours (Usage), Body Mass Index (BMI) in kilograms to the square of their height (in meters), among others. The original data set
+as well as details of the other features is available [here](https://www.kaggle.com/competitions/child-mind-institute-problematic-internet-use/data).
+
+
+
+```{r}
+# Read files into R
+Data1 <- read.csv("C:/Users/timot/OneDrive/Documentos/Projects/ChildMind/train.csv", header = TRUE)
+
+columns_to_remove <- which(colnames(Data1) %in% colnames(Data1)[56:75]) 
+
+Data1 <- Data1[, -columns_to_remove]
+
+# Exploratory Data Analysis for Missing Variables
+# This section examines missing data in the dataset.
+# Load the 'visdat' package to visualize missing data.
+library(visdat)
+library(ggplot2)
+library(corrplot)
+library(RColorBrewer)
+
+# Check the missingness in the data
+#vis_miss(Data1)
+
+# Make categorical variables as factors
+Data1$Basic_Demos.Enroll_Season <-as.factor(Data1$Basic_Demos.Enroll_Season)
+Data1$CGAS.Season <-as.factor(Data1$CGAS.Season)
+Data1$Physical.Season <-as.factor(Data1$CGAS.Season)
+Data1$Fitness_Endurance.Season <-as.factor(Data1$Fitness_Endurance.Season)
+Data1$FGC.Season <-as.factor(Data1$FGC.Season)
+Data1$BIA.Season <-as.factor(Data1$BIA.Season)
+Data1$PAQ_A.Season <-as.factor(Data1$PAQ_A.Season)
+Data1$PAQ_C.Season <-as.factor(Data1$PAQ_C.Season)
+Data1$PCIAT.Season <-as.factor(Data1$PCIAT.Season)
+Data1$SDS.Season <-as.factor(Data1$SDS.Season)
+Data1$PreInt_EduHx.Season <-as.factor(Data1$PreInt_EduHx.Season)
+
+Data3 <- Data1
+#vis_miss(Data3)
+
+#dim(Data3)
+
+# Noted some observations had weight and BMI of 0, this is not possible, hence we replace with NA so the figures can be estimated with chained imputation.
+
+Data3$Physical.Weight[Data3$Physical.Weight == 0] <- NA
+Data3$Physical.BMI[Data3$Physical.BMI == 0] <- NA
+
+
+# Excluding the first column that contains Id and the last column that contains SII, derived from PCIAT
+Data3 <- Data3[, -c(1, 62)]
+```
+
+
+```{r, echo=FALSE, results='hide'}
+# Load the package to perform Chained Imputation on missing data
+# Load package for Chained Imputation - MICE 
+library(mice)
+
+# Run MICE
+impData <- mice(Data3,m=1,maxit=100, visitSequence = "monotone", seed=500)
+
+# Store the final data set 
+miceData <- complete(impData,1)
+```
+
+
+```{r}
+#dim(miceData)
+#vis_miss(miceData[, 30:44])
+
+missing_percentage2 <- colSums(is.na(miceData)) / nrow(miceData) * 100
+
+# Find columns with more than 30% missing values
+columns_with_missing2 <- which(missing_percentage2 > 5)
+
+# Exclude outstanding columns with Data missing
+Data4 <- miceData[,-c(columns_with_missing2)]
+
+```
+
+
+```{r}
+# Plot to check for missing data as part of Data cleaning
+#library(VIM)
+#aggr(Data4, col=c('white','blue'),
+#numbers=TRUE,
+#bars=FALSE,
+#combined = TRUE,
+#only.miss=TRUE,
+#sortVars=TRUE,labels=names(Data4),
+#cex.axis=.5, gap=1,
+#xlab=c("Histogram of missing data", "Pattern"))
+```
+
+# Section 2: Data Cleaning and EDA
+
+This section shows the exploratory data analysis of the dataset. Before proceeding to the different estimation methods on the PCIAT variable, we begin by checking for missing variables within the dataset, as this is the first step in our data cleaning process. The missing data check on the dataset revealed that about 35% of the data was missing. Section two details the analytical steps taken to address the missing data. Subsequently, we have a cleaned dataset with `r ncol(Data4)` features and 3,287 observations. This is the data to be used for this analysis.
+
+From Table 1, it is noted that the age of the students ranged from 5 to 22, and the minimum PCIAT score is 0 with a maximum of 93, BMI ranged from a minimum of 8.522 to a maximum of 59.132, Hours of Using Computer/Internet in hours (Usage) averaged approximately 1.047 hours daily, the minimum Sleep Distance score is 17 to a maximum of 96, the minimum weight of the students is 31.80 pounds with a maximum of 315 pounds (see Table 1 for more details). Examining the data set for the presence of missing variables revealed that there are no missing variable, confirming that the is cleaned and imputed is data complete, and we can proceed to predict PCIAT scores using the different features.
+
+
+```{r}
+# Library to customize table
+library(pander)
+
+# Creating a dataset with clearer column names
+Data5 <- Data4
+
+# Rename the columns of Data4
+colnames(Data5)[c(52, 7, 57, 2, 9, 55)] <- c("PCIAT", "BMI", "Usage", "Age", "Weight", "SDS")
+
+# Print the summary of 'data' with pander
+pander(summary(Data5[,c(52,7, 57, 2, 9, 55)]), caption = "Descriptive Statistics of Features")
+```
+
+The scatter plot of weight (x-axis) and total PCIAT score (y-axis) is shown in Figure 1.1 below. There is a positive correlation between weight and total PCIAT score, as the line of best fit slopes upward. This implies that children who weigh more tend to have higher PCIAT scores. The correlation is not very strong, as the points are distributed across the line.
+
+The second scatter plot represents the relationship between Sleep Disturbance Score (x-axis) and PCIAT total score (y-axis), as shown in Figure 1.2 below. The relationship between the two variables has a positive slope, implying that children who experience higher sleep disturbances tend to have higher PCIAT scores. The data points are distributed across a wide range of Sleep Disturbance Scores (ranging from 25 to 100), with corresponding PCIAT scores ranging from 0 to 80.
+
+The scatter plot in Figure 1.3 shows a positive relationship between Age and total PCIAT scores, suggesting that older children are more likely to exhibit high internet use. The median PCIAT score for males is higher than the median PCIAT score for females, as shown in Figure 1.4. Outliers are present in both categories; this is represented by dots above the whiskers. This suggests that in both groups, there are individuals who exhibit unusually high PCIAT scores compared to others of the same sex.
+
+The median PCIAT score increases as the category of internet use increases, as shown in Figure 1.5. The "Less_than_1H_daily" category has the lowest median score, while the "More_than_3H" category has the highest median. Outliers are present in almost all categories, represented by dots beyond the whiskers.
+
+The scatter plot of BMI (x-axis) and total PCIAT score (y-axis) is shown in Figure 1.6. It shows a positive correlation between BMI and total PCIAT score, as the line of best fit slopes upward. The data points are distributed across a wide range of BMI values (ranging from 10 to 60), with corresponding PCIAT scores ranging from 0 to 80. This implies that children with higher BMI tend to have higher PCIAT scores. The correlation is not very strong, as the points are distributed across the line.
+
+```{r g1, fig.width=12, fig.height=14, fig.cap ="Explatory Data Analytics of features vs PCIAT"}
+# This section examines the scatter plots of features vs response
+# Load package 'gridextra' to arrange scatterplots in rows and columns
+library(gridExtra)
+
+# First graph for Weight
+g1<- ggplot(Data4, aes(x= Physical.Weight, y = PCIAT.PCIAT_Total)) + geom_point(col = 'blue', alpha = 0.5)+
+  labs(title = "Figure 2.1:", x = "Weight", y = "Total PCIAT Score", caption =
+         "A scatter plot of Weight vs Total PCIAT Score") + stat_smooth(method = "lm", formula = y ~ x, se = FALSE)
+
+# Second graph for Sleep Disturbance Score
+g2<- ggplot(Data4, aes(x= SDS.SDS_Total_Raw, y = PCIAT.PCIAT_Total)) + geom_point(col = 'blue', alpha = 0.5)+
+  labs(title = "Figure 2.2:", x = "Sleep Disturbance Score", y = "Total PCIAT Score", caption =
+         "A scatter plot of Sleep Disturbance Score vs Total PCIAT Score") + stat_smooth(method = "lm", formula = y ~ x, se = FALSE)
+
+# Third graph for Age
+g3<- ggplot(Data4, aes(x= Basic_Demos.Age, y = PCIAT.PCIAT_Total)) + geom_point(col = 'blue', alpha = 0.5)+
+  labs(title = "Figure 2.3:", x = "Age", y = "Total PCIAT Score", caption =
+         "A scatter plot of Age vs Total PCIAT Score") + stat_smooth(method = "lm", formula = y ~ x, se = FALSE)
+
+# Fourth graph for sex
+g4 <- ggplot(Data4, aes(x = factor(Basic_Demos.Sex, levels = c(0, 1), labels = c("Male", "Female")), y = PCIAT.PCIAT_Total)) + geom_boxplot(fill = 'lightblue', color = 'black')+
+  labs(title = "Figure 2.4:", x = "Sex", y = " Total PCIAT Score", caption =
+         "A box plot of Sex versus Total PCIAT Score") + stat_smooth(method = "lm", formula = y ~ x, se = FALSE)
+
+# Fifth graph for Hours of Using Computer/Internet
+g5<- ggplot(Data4, aes(x= factor(PreInt_EduHx.computerinternet_hoursday, levels = c(0:3), labels = c("<1H", "1H", "2H", ">3H")), y = PCIAT.PCIAT_Total)) + geom_boxplot(fill = 'lightblue', color = 'black')+
+  labs(title = "Figure 2.5:", x = "InternetUse", y = "Total PCIAT", caption =
+         "A box plot of Hours of Using Computer vs Total PCIAT Score") + stat_smooth(method = "lm", formula = y ~ x, se = FALSE)
+
+# Sixth graph for Body Mass Index
+g6<- ggplot(Data4, aes(x= Physical.BMI, y = PCIAT.PCIAT_Total)) + geom_point(col = 'blue', alpha = 0.5)+ labs(title = "Figure 2.6:", x = "Body Mass Index", y = "Total PCIAT", caption =
+         "A scatter plot of Body Mass Index vs Total PCIAT Score") + stat_smooth(method = "lm", formula = y ~ x, se = FALSE)
+
+grid.arrange(g1, g3, g2, g4,g5, g6, ncol = 2, nrow = 3)
+```
+
+
+
+
+# Section 3: Chained Imputation - Multivariate Imputation by Chained Equations
+
+Missing data is defined as values that are not observed. This section discusses a method of handling missing data. Specifically, the technique we will be using to handle missing data is called Multivariate Imputation by Chained Equations (MICE).
+
+## Section 3.1: Introduction:
+
+Missing data can be due to several factors, including, but not limited to, difficulty in obtaining that information during data collection, omission during data collection, and others. By default, R excludes missing data when creating models or plotting charts. However, allowing this would imply a statistical assumption called Missing Completely at Random. Simply stated, this means that missing data points are completely random, and thus excluding those missing observations creates no bias in the dataset. However, the assumption of Missingness Completely at Random is difficult to prove, as there is a possibility that the missing data may be related in some way, and thus excluding such data means excluding an important fraction of your data.
+
+Ways of handling missing data include complete-case analysis. This is an approach that discards all rows with missing data. R performs a complete-case analysis while creating charts and visuals. The problem with this approach is the difficulty in proving missingness completely at random. Another challenge with using a complete-case analysis is that there may be significantly fewer observations to work with if a complete-case analysis is performed. In this instance, performing a complete-case analysis would reduce the number of observations to zero. This makes complete-case analysis impracticable for our analysis.
+
+Other techniques for handling missingness include unconditional mean imputation. Mean imputation works by replacing the missing values with the mean of the observed values in that feature. While the benefit of this method is that it is easy to use, mean imputation can often distort the distribution of the variable, as it creates more variables that are zero standard deviations away from the mean. Hence, it ultimately underestimates the standard deviation of the variable.
+
+Another estimation technique is regression imputation, which involves using a regression model to predict the missing values in our dataset. This method uses observed values of the variable with missing data as the dependent variable and the other variables as the independent variables to fit a regression model. It takes into account the relationship between variables in the dataset and can improve the accuracy of predictions. However, linear regression models are sensitive to outliers.
+
+## Section 3.2: Method:
+
+This section discusses MICE as a method for imputation. MICE works by creating multiple imputations, as opposed to single imputations. The chained imputation approach is very flexible and can handle variables of varying types (e.g., continuous or binary). Azur, Stuart, Frangakis, and Leaf (2011) explained the steps for MICE as follows:
+
+i. All missing values in the dataset are imputed using simple imputation methods, such as the mean. These imputations can be thought of as "placeholders."
+
+ii. The “placeholder” mean imputations for one variable ("var") are set back to missing.
+
+iii. In this step, the observed values from the variable "var" are regressed on the other variables in the imputation model, which may or may not include all the variables in the dataset. As a result, "var" is the dependent variable in a regression model, while all the other variables are independent variables. The regression models used here are based on the same assumptions as those used in linear, logistic, or Poisson regression models that do not involve missing data.
+
+iv. Using the regression model, the missing values for "var" are replaced with predictions (imputations). Both the observed values and the imputed values will be used in regression models when "var" is subsequently used as an independent variable.
+
+v. Steps 2–4 are repeated for each variable that has missing data. During one cycle, each variable is cycled, and its missing values are replaced with predictions based on regression analysis.
+
+vi. Steps 2–4 are repeated for several cycles, with the imputations being updated at each cycle.
+
+## Section 3.3: Results:
+
+This section discusses the results of the chained imputation. Following the application of MICE, we obtained a final dataset consisting of 57 features and 3,287 observations. This dataset will be used in our analysis. A limitation of MICE is that the method relies on the assumption that missing data is "Missing At Random" (MAR), meaning the probability of a value being missing depends only on observed variables, however, if this assumption is not met, the imputed data can be biased.
+
+```{r}
+# Create the design matrix
+XD1 <- model.matrix(PCIAT.PCIAT_Total ~ . , data = Data4)
+
+```
+
+# Section 4: Elastic Net
+
+This section discusses the first method for predicting PCIAT scores based on 57 features and 2,287 observations. We will use Elastic Net to perform our first prediction of PCIAT scores. 
+
+## Section 4.1: Introduction:
+
+The choice of Elastic Net stems from the high correlation between the features in the dataset. Specifically, we noted a high correlation between height and age, and weight and age. This invalidates the use of linear regression. We can consider alternative methods like Lasso, Ridge, and Elastic Net regression. In Ridge regression, also known as L2 regularization, the method utilizes a penalty term to improve the ordinary least squares modeling. It is a shrinkage technique that shrinks coefficients towards zero, and a penalty term is added, this includes $\lambda$, a tuning parameter. This penalty comprises the tuning parameter multiplied by the
+squared sum of the coefficient values. On the other hand, Least Absolute Shrinkage and Selection Operator (Lasso) regression, also known as L1 regularization, adds a penalty term to the coefficients that is proportional to their absolute values. As a result, for high values of the tuning parameter $\lambda$, many coefficients are set to zero under Lasso. Thus, Lasso performs variable selection, which is not the case in Ridge regression. In data sets, Ridge performs shrinkage, whereas Lasso performs selection, even in instances when a shrinkage technique is
+better suited. Elastic Net emerged as a result of critiques of Lasso, whose variable selection can be too dependent on the data and thus unstable. The solution is to combine the penalties of Ridge regression
+and Lasso to get the best of both worlds. This is the technique we will use in this analysis.
+
+```{r g7,fig.width=4, fig.height=4, fig.cap="Correlation plot of features", include=FALSE}
+numeric_columns <- c("Basic_Demos.Age", "CGAS.CGAS_Score", "Physical.BMI", "Physical.Height", "Physical.Weight", "Physical.Diastolic_BP", "Physical.HeartRate", "Physical.Systolic_BP", "PCIAT.PCIAT_Total", "SDS.SDS_Total_Raw", "SDS.SDS_Total_T")
+
+# Create a new data frame with the selected columns from data4
+#new_data <- Data4[, numeric_columns]
+#M <-cor(new_data)
+#corrplot(M, method="circle", type= "upper")
+```
+
+## Section 4.2: Method:
+
+This section discusses Elastic Net regression as a method in predicting numerical variables. Elastic Net regression combines the strengths of Ridge and Lasso regression, involving both L1 and L2 penalties. Due to the Ridge regularization, the Elastic Net estimator can handle correlations between the predictors better than Lasso. Additionally, due to the L1 regularization, sparsity is achieved. For Elastic Net regression, we choose the estimates of $\hat{\beta}$ that minimizes the below:
+
+$$
+\left[  \sum_{i=1}^{n} (y_i - X_i \hat{\beta)}^2 + \lambda \left( \alpha \sum_{j=1}^{p} |\hat{\beta_j}| + {1 - \alpha} \sum_{j=1}^{p} \hat{\beta_j}^2 \right) \right]
+$$ Where $\lambda \ge 0$ 0 and 1 $\ge \alpha \ge 0$ are scalars. where
+$\alpha$ is the mixing parameter between ridge $(\alpha$ = 0) and lasso
+$(\alpha$ = 1).
+
+We derive Elastic Net through the following steps:
+
+i.  Test sequence of alpha values from 0 to 1 and lambda values for a defined range.
+
+ii. Perform 10-fold cross-validation on the features using Elastic Net regression for for each alpha value and each lambda value in the sequence.
+
+iii. For each alpha value, store the optimal lambda and the RMSE/MSE.
+
+iv. Determine which combination of alpha and lambda gives the best model by analyzing the RMSE/MSE results.
+
+Specifically for our analysis, we consider $\lambda$ values from 0 up to 25 with increments of 0.5, and $\alpha$ values within the range of 0 to 1, with increments of 0.01. 
+
+## Section 4.3: Results:
+
+This section discusses the results of the Elastic Net Regression method. The Root Mean Squared Error (RMSE) is a measure of the average magnitude of the error between the predicted values and the actual observed
+values. Lower RMSE values indicate a better fit of the model to the data. The mathematical expression for the RMSE is given below:
+
+$$
+\text{RMSE} = \sqrt{\frac{1}{n_{test}} \sum_{i^* = 1}^{n_{{test}}} \left( y_{i^*} - \hat{y}_{i^*} \right)^2}
+$$
+
+where $y$ represents the true values of the response variable, and $\hat{y}$ denotes the predicted values.
+
+```{r}
+# Section for Elastic Net Model 
+suppressMessages(library(glmnet))
+# Choose a sequence of values for alpha 
+alphaseq <- seq(from = 0, to =1 , by =.01)
+
+storage <- data.frame("Alpha" = rep(NA,length(alphaseq)), "Lambda" = rep(NA,length(alphaseq)), "RMSE" = rep(NA,length(alphaseq)))
+
+a = 1 
+# Run 10-fold CV
+set.seed(100)
+for( i in alphaseq ){
+  cv.out <- cv.glmnet(XD1[ , -1], Data4[,"PCIAT.PCIAT_Total"], alpha = i,lambda = seq(from = 0, to = 25, by = .5))
+  storage$Lambda[a] <- cv.out$lambda.min
+  storage$RMSE[a] <- sqrt(min(cv.out$cvm))
+  storage$Alpha[a] <- i
+  a = a + 1 
+}
+```
+
+```{r}
+# Run 10-fold CV
+set.seed(100)
+for( i in 1:101 ){
+  # Pull alpha
+  alpha <- alphaseq[i]
+  
+  # Run 10-fold CV
+  cv.out <- cv.glmnet(XD1[ , -1], Data4[,"PCIAT.PCIAT_Total"], alpha = alpha,lambda = seq(from = 0, to = 25, by = .5))
+  
+  # Store lambda 
+  storage$Lambda[i] <- cv.out$lambda.min
+  # Store test MSE
+  storage$MSE[i] <- (min(cv.out$cvm))
+  # Store Alpha
+  storage$Alpha[i] <- alpha
+}
+# Storing lamda and alpha with minimum MSE
+final <- storage[which.min(storage$MSE),]
+
+# Formatting the output
+knitr::kable(final, caption = "Optimal parameters for Elastic Net")
+```
+
+
+We considered $\lambda$ values from 0 to 25, the optimal $\lambda$ was `r final[1,2]`. we considered $\alpha$ values from 0 to 1 and the optimal $\alpha$ = `r final[1,1]`, yielding a RMSE of `r final[1,3]` and MSE of
+`r final[1,4]`. This value means that, on average, our predictions for Total PCIAT score were off by approximately $\pm$ `r final[1,3]`.We proceed to examine the relationship between the model predictions and the true PCIAT scores. This relationship can be viewed in a scatter plot with the true PCIAT score on the x-axis and the Elastic Net predicted PCIAT score on the y-axis. See Figure 2 below for more details. The red dots indicate where the model overestimated the PCIAT score, while blue points show where the model tends to underestimate scores, the points lie close to the regression line, showing that this is a pretty good prediction. It is important to note that the limitations of Elastic Net include the biased estimates of the coefficients that the regression method yields and the method is also computationally expensive.
+
+
+```{r}
+# Obtaining coefficients
+
+# Train Elastic Net
+elastic.final <- glmnet(XD1[,-1], Data4[,"PCIAT.PCIAT_Total"], alpha =final[1,1] ,lambda = final[1,2])
+
+# Get predicted values
+predicted_values <- predict(elastic.final, s = 0, newx = XD1[ , -1])
+
+# Store the coefficients
+elastic.betas <- as.numeric(coefficients(elastic.final))
+
+```
+
+
+```{r}
+# This section creates a scatter plot of actual vs. predicted values for Elastic Net predictions
+# Create a new dataset with the predicted and the response variable in a data frame
+
+newdata <- data.frame("Prediction" = round(predicted_values[,1], 2), "Response" = Data4[,"PCIAT.PCIAT_Total"])
+
+# Create a vector that shows if predicted is greater or less than the actual response values
+colorvec2 <- ifelse( newdata$Prediction > newdata$Response, "red", "blue")
+color_counts <- table(colorvec2)
+```
+
+
+```{r g8,fig.width=4, fig.height=4, fig.cap="A scatter plot of True PCIAT Score vs Elastic Net Predicted Scores"}
+# Plot the actual vs predicted
+ggplot(newdata, aes(x=Response, y = Prediction)) + geom_point(color=colorvec2)+ labs(x = "True PCIAT score", y = "Predicted PCIAT scores", caption = "A scatter plot of True PCIAT Score vs Elastic Net Predicted Scores")+ geom_abline()
+```
+
+
+# Section 5: Random Forest
+
+This section discusses the second method for predicting PCIAT scores based on the 57 features and 2,287 observations derived from the imputation. The final method is called Random Forest, a model that can handle both classification and regression problems. The choice of Random Forest is because the method can handle a wider range of feature types, it is less susceptible to outliers, and generally provides higher predictive accuracy when dealing with complex, non-linear relationships in data than Elastic Net.
+
+## Section 5.1: Introduction:
+
+A decision tree is a type of flowchart that shows the pathway to a decision. "A decision tree starts at a single point (or ‘node’) which then branches (or ‘splits’) in two or more directions. Each branch offers different possible outcomes, incorporating a variety of decisions and chance events until a final outcome is achieved." A decision tree offers many benefits, which is why it is being considered. It interprets data in a highly visual way, works well with both numerical and non-numerical data, and can easily be combined with other decision-making techniques. However, some drawbacks of decision trees include the possibility of overfitting if the trees become too complex and bias when using an imbalanced dataset (i.e., where one class of data dominates another). A Random Forest combines the output from multiple decision trees. It creates a number of decision trees during the training process. Each tree is constructed based on a random subset of the dataset, and random subsets of features are used for each partition of the dataset. Randomness introduces variability among individual trees, reducing the risk of overfitting and improving prediction accuracy. During prediction, the algorithm aggregates the results of all trees, either by voting (for classification tasks) or averaging (for regression tasks). The benefits of Random Forest include higher predictive accuracy compared to regression trees, resistance to overfitting, and better handling of large datasets. 
+
+## Section 5.2: Method:
+
+This section discusses the Random Forest algorithm. Random Forest algorithms have three main parameters: node size, the number of trees, and the number of features sampled. From these, the Random Forest classifier can be used to solve regression or classification problems. It is built on the idea of bootstrap aggregation, which is a method for resampling with replacement in order to reduce variance. Random Forest uses multiple trees to average (regression) or compute majority votes (classification) in the terminal leaf nodes when making a prediction. Built of the idea of decision trees, random forest models have resulted in significant improvements in prediction accuracy as compared to a single tree by growing 'n' number of trees; each tree in the training set is sampled randomly without replacement.
+
+The number of features we would consider for the random forest method is 8, while the number of trees to be grown is 1000.
+
+
+```{r}
+# This section is for the random Forest algorithm
+set.seed(100)
+#install.packages("randomForest")
+suppressMessages(library(randomForest))
+set.seed (100)
+bag.Data <- randomForest (PCIAT.PCIAT_Total ~ .,data = Data4 , mtry = sqrt(57), ntree = 1000 , compete= FALSE)
+
+predict.OOB <- bag.Data$predicted
+# Compute the OOB error estimate
+squared_residuals <- mean( (Data4$PCIAT.PCIAT_Total - predict.OOB)^2)
+
+# Compute the RSME
+Test_RSME <- sqrt(squared_residuals)
+```
+
+
+## Section 5.3: Results:
+
+This section discusses the results of the Random Forest algorithm. Based on the random forest method using the 1000 trees and 8 variables randomly sampled as candidates at each split, we obtained an RMSE of `r Test_RSME`. This value means that, on average, our predictions for Total PCIAT score were off by approximately $\pm$ `r Test_RSME`. We proceed to examine the relationship between Random Forest predictions and the true PCIAT scores. This relationship can be viewed in a scatter plot with the true PCIAT score on the x-axis and the Random Forest predicted PCIAT score on the y-axis. See Figure 3 below for more details. The red dots indicate where the model overestimated the PCIAT score, red points are prevalent in the left area of the plot, indicating that the model tends to overestimate in this range of PCIAT values (i.e., from 0 to 40), while blue points are more prevalent in the right part of the plot, showing that the model tends to underestimate scores when PCIAT values are greater than around 50, given the range of our PCIAT scores, this is also a very good prediction and most points are very close to the line with little dispersion observed. However, this method has the disadvantage of being computationally expensive.
+
+```{r}
+# This section creates a scatter plot of actual vs. predicted values
+# Create a new dataset with the predicted and the response variable in a data frame
+
+newdata2 <- data.frame("Prediction" = predict.OOB, "Response" = Data4[,"PCIAT.PCIAT_Total"])
+
+# Create a vector that shows if predicted is greater or less than the actual response values
+colorvec2 <- ifelse( newdata2$Prediction > newdata2$Response, "red", "blue")
+
+```
+
+
+```{r g9,fig.width=4, fig.height=4, fig.cap="A scatter plot of True PCIAT Score vs Random Forest Predicted Scores"}
+# Plot the actual vs predicted for Random Forest
+ggplot(newdata2, aes(x=Response, y = Prediction)) + geom_point(color=colorvec2)+ labs(x = "True PCIAT score", y = "Predicted PCIAT scores", caption = "A scatter plot of True PCIAT Score vs Random Forest Predicted Scores")+ geom_abline()
+```
+
+# Conclusion
+
+The objective of this study is to determine the most effective predictive model for estimating scores on the Parent-Child Internet Addiction Test (PCIAT) based on features. We considered two models: Elastic Net regression and Random Forest. Elastic Net combines the advantages of both Ridge and Lasso regression, yielding a lower RMSE of `r final[1,3]`, while Random Forest, with its ensemble of multiple decision trees working to improve overall prediction accuracy, yields an RMSE of `r Test_RSME`. In conclusion, the analysis revealed that Elastic Net regression outperforms Random Forest in predicting PCIAT scores, achieving the lower RMSE of `r final[1,3]`. The results indicate that, on average, the predicted Parent-Child Internet Addiction Test (PCIAT) scores are approximately `r final[1,3]` away from the true values. I would recommend the use of Elastic Net for the prediction of PCIAT scores, however, it is important to note that the limitations of Elastic Net include the biased estimates of the coefficients that the regression method yields and the method is also computationally expensive.
